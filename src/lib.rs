@@ -1,81 +1,59 @@
-//! Aomi Playground — a minimal starter app you can clone, edit, and redeploy.
-//!
-//! This is the source for the example agent you deployed during onboarding.
-//! Each tool is a zero-sized type implementing `DynAomiTool`; the
-//! `dyn_aomi_app!` macro at the bottom registers them and exposes the plugin to
-//! the Aomi backend. To make it yours: edit a tool, add a new one, then run
-//! `aomi-build deploy`.
+use aomi_sdk::*;
 
-use aomi_sdk::{DynAomiTool, DynToolCallCtx, dyn_aomi_app};
-use schemars::JsonSchema;
-use serde::Deserialize;
-use serde_json::{Value, json};
+mod data;
+mod sim;
+mod tool;
 
-/// App state. Keep it `Clone + Default` — the runtime constructs one per
-/// session. Add fields here (HTTP clients, config) as your app grows.
-#[derive(Clone, Default)]
-struct PlaygroundApp;
+const PREAMBLE: &str = r#"## Role
+You are **Goal Digger**, an AI trading analyst for the 2026 FIFA World Cup on
+Polymarket. You find where the crowd has a price wrong, explain why in plain
+language, and place the trade through the user's own wallet.
 
-// ---------------------------------------------------------------------------
-// Tool 1 — echo: the simplest possible tool (one required string arg).
-// ---------------------------------------------------------------------------
+## How you reason
+1. **Simulate, never guess.** For any match question, call `simulate_match`. It
+   runs 50,000 Dixon-Coles + Monte-Carlo draws from team Elo and expected goals.
+   The probabilities it returns ARE your opinion. Do not invent odds.
+2. **Encode the news as adjustments.** Before simulating, read the situation
+   (injuries, suspensions, fitness, short rest, host crowd) and translate it into
+   the `*_adj` multipliers (clamped 0.6..1.4) and `host_elo_bonus`. State each
+   adjustment and WHY in one short line. A key striker out is roughly attack 0.90;
+   a first-choice keeper out is roughly the opponent attack 1.10. Be conservative.
+3. **Find the edge.** Call `find_edge` with your model probability and the market
+   slug. Only call something a VALUE_BUY when the edge clears the threshold.
+4. **Explain the gap, then offer the trade.** Say the market price, your number,
+   the one or two reasons for the gap, and the suggested stake. Then offer to place it.
 
-#[derive(Debug, Deserialize, JsonSchema)]
-struct EchoArgs {
-    /// The message to echo back.
-    message: String,
-}
+## Placing trades (borrowed rails)
+You do NOT have your own order tools. Use the Polymarket app's tools that are
+loaded alongside you: `resolve_polymarket_trade_intent` -> `build_polymarket_order`
+-> (wallet signs) -> simulate the fill -> `submit_polymarket_order`. Always let the
+fill simulate before the user signs. Never custody funds; the user signs every order.
 
-struct EchoTool;
+## Tools you own
+- `simulate_match` — single match, full outcome distribution.
+- `simulate_tournament` — bracket title probabilities.
+- `find_edge` — model vs live Polymarket price, with a quarter-Kelly stake.
+- `get_team_dossier` — Elo, xG, and live injuries for a team.
+- `get_wc_fixtures` — schedule and live scores.
+- `watch_match` — live momentum snapshot.
 
-impl DynAomiTool for EchoTool {
-    type App = PlaygroundApp;
-    type Args = EchoArgs;
-
-    const NAME: &'static str = "echo";
-    const DESCRIPTION: &'static str = "Echo a message back verbatim.";
-
-    fn run(_app: &Self::App, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
-        Ok(json!({ "message": args.message }))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tool 2 — greet: shows optional args + returning structured JSON. Copy this
-// shape to build your own tools.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct GreetArgs {
-    /// Who to greet.
-    name: String,
-    /// Add an exclamation mark. Defaults to false.
-    #[serde(default)]
-    excited: bool,
-}
-
-struct GreetTool;
-
-impl DynAomiTool for GreetTool {
-    type App = PlaygroundApp;
-    type Args = GreetArgs;
-
-    const NAME: &'static str = "greet";
-    const DESCRIPTION: &'static str = "Greet someone by name, optionally with excitement.";
-
-    fn run(_app: &Self::App, args: Self::Args, _ctx: DynToolCallCtx) -> Result<Value, String> {
-        let punct = if args.excited { "!" } else { "." };
-        Ok(json!({ "greeting": format!("Hello, {}{}", args.name, punct) }))
-    }
-}
+## Voice
+Calm and concrete. No hype. Give the number, the reason, the stake. When a bet is
+fair or overpriced, say so plainly rather than forcing a trade. Probabilities are
+estimates, not certainties; never promise a win."#;
 
 dyn_aomi_app!(
-    app = PlaygroundApp,
-    name = "playground-example",
+    app = tool::GoalDiggerApp,
+    name = "goal-digger",
     version = "0.1.0",
-    preamble = "You are the Aomi Playground example agent. You can echo messages \
-                and greet people. Encourage the user to clone this repo, edit \
-                `src/lib.rs`, and redeploy with `aomi-build` to make it their own.",
-    tools = [EchoTool, GreetTool],
-    namespaces = []
+    preamble = PREAMBLE,
+    tools = [
+        tool::SimulateMatch,
+        tool::SimulateTournament,
+        tool::FindEdge,
+        tool::GetTeamDossier,
+        tool::GetWcFixtures,
+        tool::WatchMatch,
+    ],
+    namespaces = ["evm-core"]
 );

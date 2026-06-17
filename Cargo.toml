@@ -1,22 +1,17 @@
 [package]
-name    = "playground-example"
+name    = "goal-digger"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
-# Aomi plugins are dynamically loaded by the backend — they MUST be a cdylib.
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-# Pin EXACTLY to the community platform's required_sdk_version (see platform.json
-# in aomi-labs/community-apps). CI bundle validation refuses any mismatch — even
-# a patch bump.
 aomi-sdk   = "=3.0.0"
-schemars   = "1"
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# Tools run inside a synchronous FFI boundary — there is no async runtime inside
-# the plugin. When you need HTTP, use reqwest's blocking client:
-# reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+schemars   = "1.0.4"
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest    = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rand       = "0.8"
+tokio      = { version = "1", features = ["rt-multi-thread", "macros"] }
